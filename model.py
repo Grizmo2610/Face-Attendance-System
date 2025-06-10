@@ -19,10 +19,9 @@ import torch.nn.functional as F
 from facenet_pytorch import MTCNN, InceptionResnetV1
 
 def cosine_similarity(t1, t2):
-    denom = t1.norm() * t2.norm()
-    if denom == 0:
+    if t1.norm() == 0 or t2.norm() == 0:
         return torch.tensor(0.0)
-    return torch.dot(t1, t2) / denom
+    return F.cosine_similarity(t1.unsqueeze(0), t2.unsqueeze(0)).item()
 
 
 def init_metadata(path: str):
@@ -258,7 +257,7 @@ class FaceDetection:
 
             self.__save_database()
 
-            self.logger.info(f"Renamed '{old_name}' ➝ '{new_name}'")
+            self.logger.info(f"Renamed '{old_name}' -> '{new_name}'")
         except Exception as e:
             self.logger.error(f"Failed to rename user '{old_name}' to '{new_name}': {e}")
 
