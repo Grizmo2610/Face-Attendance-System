@@ -18,65 +18,6 @@ def parse_log_level(short_level: str) -> int:
         'w': logging.WARNING
     }.get(short_level.lower(), logging.INFO)
 
-def is_valid_excel_file(filename: str) -> bool:
-    return filename.lower().endswith(('.xls', '.xlsx'))
-
-def import_from_excel(fd: FaceDetection, filepath: str):
-    if not os.path.exists(filepath):
-        print("❌ File does not exist.")
-        return
-    if not is_valid_excel_file(filepath):
-        print("❌ Invalid file format. Only .xls or .xlsx allowed.")
-        return
-
-    try:
-        df = pd.read_excel(filepath)
-    except Exception as e:
-        print(f"❌ Failed to read Excel file: {e}")
-        return
-
-    required_cols = {'id', 'name', 'image_path'}
-    if not required_cols.issubset(df.columns.str.lower()):
-        print(f"❌ Excel file must contain columns: {required_cols}")
-        return
-
-    # Chuẩn hóa tên cột về chữ thường
-    df.columns = [col.lower() for col in df.columns]
-
-    existing_ids = set(fd.get_all_ids())  # Cần bổ sung hàm get_all_ids() nếu chưa có
-    max_id = max(existing_ids) if existing_ids else 0
-
-    def valid_id(val):
-        try:
-            v = int(val)
-            return v > 0
-        except:
-            return False
-
-    for index, row in df.iterrows():
-        raw_id = row['id']
-        name = str(row['name']).strip()
-        image_path = str(row['image_path']).strip()
-
-        if not name or not image_path:
-            print(f"❌ Row {index+2}: name hoặc image_path bị thiếu, bỏ qua")
-            continue
-
-        if valid_id(raw_id) and int(raw_id) not in existing_ids:
-            assigned_id = int(raw_id)
-        else:
-            max_id += 1
-            assigned_id = max_id
-            print(f"⚠️ Row {index+2}: id '{raw_id}' không hợp lệ hoặc đã tồn tại, đổi thành id mới: {assigned_id}")
-
-        try:
-            fd.register_face(name=name, image_path=image_path, threshold=0.8, user_id=assigned_id)
-            existing_ids.add(assigned_id)
-        except Exception as e:
-            print(f"❌ Row {index+2}: lỗi đăng ký mặt: {e}")
-
-    print("✅ Import from Excel completed.")
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Face Recognition CLI Tool")
 
@@ -128,9 +69,7 @@ if __name__ == "__main__":
         elif args.command == "rename":
             fd.rename_user(old_name=args.old, new_name=args.new)
         elif args.command == "reset":
-            reset(fd)
-        elif args.command == "import_excel":
-            import_from_excel(fd, args.file)
+            fd.reset_system()
         else:
             parser.print_help()
     except Exception as e:
