@@ -90,6 +90,8 @@ database/
 logs/
 sample/
 images/
+lab/
+customdata/
 
 *.ipynb
 *.json
