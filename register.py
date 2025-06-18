@@ -71,10 +71,11 @@ def save_image():
         cv2.imwrite(filename, last_frame)
         if not os.path.exists(filename):
             raise IOError("Save failed")
-        print(f"Image saved: {filename}")
+        # print(f"Image saved: {filename}")
         paused = False
         name_frame.pack_forget()
-        show_message("✅ Registration successful!", "green")
+        msg, color = model.register_face(name, last_frame)
+        show_message(f"{msg}", color)        
     except Exception as e:
         print("Error:", e)
         show_message("❌ Registration failed: Could not save image", "red")

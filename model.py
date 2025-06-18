@@ -111,35 +111,34 @@ class FaceDetection:
                 raise ValueError("Image is none!")
 
             if similarity >= threshold:
-                self.logger.warning(f"Similar face found: {matched_name} (similarity = {similarity * 100:.2f}%) — Overwriting")
                 self.__db[matched_id] = embedding
+                self.__database.save_database(img)
+                return self.logger.warning(f"Similar face found: {matched_name} (similarity = {similarity * 100:.2f}%) — Overwriting"), "blue"
             else:
-                user_id = generate_unique_id(self.__database.meta_data_query("ids"))
-                    
+                user_id = generate_unique_id(self.__database.meta_data_query("ids"))   
                 self.__database.update_meta_data("ids", user_id)
                 self.__database.update_meta_data("names", name)
                 self.__db[user_id] = embedding
                 
-                self.logger.info(f"Successfully registered new user: {safe_filename(name)} | ID: {user_id} ")
-                
-            box, _ = self.mtcnn.detect(img)
+                self.__database.save_database(img)
+                return self.logger.info(f"Successfully registered new user: {safe_filename(name)} | ID: {user_id} "), "green"
+            # box, _ = self.mtcnn.detect(img)
 
-            if box is not None and box[0] is not None:
-                img_cv = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
-                x1, y1, x2, y2 = [int(b) for b in box[0]]
-                cv2.rectangle(img_cv, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            # if box is not None and box[0] is not None:
+            #     img_cv = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+            #     x1, y1, x2, y2 = [int(b) for b in box[0]]
+            #     cv2.rectangle(img_cv, (x1, y1), (x2, y2), (0, 255, 0), 2)
 
-                plt.figure(figsize=(6, 6))
-                plt.axis('off')
-                plt.imshow(cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB))
-                filename = safe_filename(f"bbox_{self.__database.meta_data_query('ids')[-1]}_{self.__database.meta_data_query('ids')[-1]}.png")
-                save_path = os.path.join(self.SAMPLE_FOLDER, filename)
-                plt.savefig(save_path, bbox_inches='tight', pad_inches=0)
-                plt.close('all')
+            #     plt.figure(figsize=(6, 6))
+            #     plt.axis('off')
+            #     plt.imshow(cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB))
+            #     filename = safe_filename(f"bbox_{self.__database.meta_data_query('ids')[-1]}_{self.__database.meta_data_query('ids')[-1]}.png")
+            #     save_path = os.path.join(self.SAMPLE_FOLDER, filename)
+            #     plt.savefig(save_path, bbox_inches='tight', pad_inches=0)
+            #     plt.close('all')
 
-            self.__database.save_database(img)
         except Exception as e:
-            self.logger.error(f"Failed to register face for '{safe_filename(name)}': {e}")
+            return self.logger.error(f"Failed to register face for '{safe_filename(name)}': {e}"), "red"
 
     def verify_face(self, source: str | np.ndarray | Any, threshold: float=0.6):
         try:
