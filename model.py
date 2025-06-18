@@ -43,7 +43,20 @@ class FaceDetection:
         if len(self.__db) != len(self.__database.meta_data_query("ids")):
             self.logger.warning("DB and meta_data out of sync!")
 
+    def detect_face(self, img):
+        face = self.mtcnn(img)
+        if face is None:
+            return None
+        return face
 
+    def get_bbox(self, img):
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img_pil = Image.fromarray(img)
+        box, _ = self.mtcnn.detect(img_pil)
+        if box is not None and box[0] is not None:
+            return box
+        return None
+    
     def __get_embedding(self, source: str | np.ndarray | Image.Image):
         try:
             if isinstance(source, str):
@@ -55,9 +68,7 @@ class FaceDetection:
             else:
                 raise ValueError("Unsupported image type: must be file path or OpenCV image.")
 
-            face = self.mtcnn(img)
-            if face is None:
-                return None
+            face = self.detect_face(img)
             return self.resnet(face.unsqueeze(0)).squeeze(0)
         except Exception as e:
             self.logger.error(f"Failed to extract embedding: {e}")
