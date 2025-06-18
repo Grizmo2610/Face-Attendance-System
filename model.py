@@ -6,7 +6,7 @@ import pickle
 import logging
 import datetime
 import unicodedata
-from typing import Any, List
+from typing import Any
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -17,6 +17,8 @@ from PIL import Image
 import torch
 import torch.nn.functional as F
 from facenet_pytorch import MTCNN, InceptionResnetV1
+
+from logger import MyLogger
 
 def cosine_similarity(t1, t2):
     if t1.norm() == 0 or t2.norm() == 0:
@@ -43,6 +45,8 @@ def safe_filename(name):
     name = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore').decode('ascii')
     return re.sub(r'[^\w\-]', '_', name).lower()
 
+logger = MyLogger()
+
 class UserDatabase:
     def __init__(self, database_path: str):
         self.DATABASE_FOLDER = 'database'
@@ -52,6 +56,7 @@ class UserDatabase:
         self.__meta_data = read_meta_data(self.meta_data_path)
         self.__db = self.__load_database()
         
+        self.logger = logger
     def __load_database(self):
         if os.path.exists(self.DB_PATH):
             try:
@@ -78,12 +83,11 @@ class UserDatabase:
                 print(f"{prefix}list[{element_type}]")
             else:
                 print(f"{prefix}{type(value).__name__}")
-
         
     def __save_image(self, source: str| np.ndarray| Image.Image = None):
         save_path = os.path.join(self.DATABASE_FOLDER, "Images", f"Default.png")
-        if self.__database.meta_data_query("ids") and self.__database.meta_data_query("names"):
-            filename = safe_filename(f"{self.__database.meta_data_query("ids")[-1]}_{self.__database.meta_data_query("names")[-1]}") + '.png'
+        if self.__meta_data["ids"] and self.__meta_data["names"]:
+            filename = safe_filename(f"{self.__meta_data["ids"][-1]}_{self.__meta_data["names"][-1]}") + '.png'
             save_path = os.path.join(self.DATABASE_FOLDER, "Images", filename)
 
         if isinstance(source, str):
@@ -96,7 +100,7 @@ class UserDatabase:
         elif source is None:
             self.logger.warning("Database saved without new image!")
     
-    def __save_database(self, source: str| np.ndarray| Image.Image = None):
+    def save_database(self, source: str| np.ndarray| Image.Image = None):
         try:
             torch.save(self.__db, self.DB_PATH)
             with open(self.meta_data_path, 'w') as f:
@@ -110,7 +114,7 @@ class FaceDetection:
                  log_level: int = logging.INFO, log_to_console: bool = True):
         self.mtcnn = MTCNN(image_size=160, margin=20, device='cuda' if torch.cuda.is_available() else 'cpu')
         self.resnet = InceptionResnetV1(pretrained='vggface2').eval()
-        
+            
         self.DATABASE_FOLDER = 'database'
         self.LOG_FOLDER = 'logs'
         self.SAMPLE_FOLDER = 'sample'
@@ -124,20 +128,9 @@ class FaceDetection:
         # self.__meta_data = self.__database.__meta_data
         self.__db = self.__database.__db
         
-        now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_file = os.path.join(self.LOG_FOLDER, f"model_log_{now}.log")
-
-        handlers = [logging.FileHandler(log_file, mode='w')]
-        if log_to_console:
-            handlers.append(logging.StreamHandler())
-
+        self.logger = logger
+        self.logger.setup(log_level, log_to_console, self.LOG_FOLDER)
         
-        self.logger = logging.getLogger("FaceDetection")
-        logging.basicConfig(
-            level=log_level,
-            format="%(asctime)s | %(levelname)s | %(message)s",
-            handlers=handlers
-        )
         if len(self.__db) != len(self.__database.meta_data_query("ids")):
             self.logger.warning("DB and meta_data out of sync!")
 
@@ -243,7 +236,7 @@ class FaceDetection:
                 plt.savefig(save_path, bbox_inches='tight', pad_inches=0)
                 plt.close('all')
 
-            self.__database.__save_database(img)
+            self.__database.save_database(img)
         except Exception as e:
             self.logger.error(f"Failed to register face for '{safe_filename(name)}': {e}")
 
@@ -283,7 +276,7 @@ class FaceDetection:
             
             self.__rename_file(old_name, new_name, user_id)
 
-            self.__database.__save_database()
+            self.__database.save_database()
 
             self.logger.info(f"Renamed '{old_name}' -> '{new_name}'")
         except Exception as e:
@@ -327,7 +320,7 @@ class FaceDetection:
         self.__db.pop(user_id, None)
 
         self.__delete_files(user_id, name)
-        self.__database.__save_database()
+        self.__database.save_database()
         self.logger.info(f"Deleted user {user_id} ({name})")
 
     def __delete_files(self, user_id, name):
