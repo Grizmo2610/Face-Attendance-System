@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Face Registration</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <h2>Face Registration</h2>
+  <video id="video" autoplay playsinline></video>
+  <canvas id="canvas" style="display:none;"></canvas>
+
+  <input type="text" id="name" placeholder="Enter name">
+  <button onclick="capture()">Register</button>
+  <p id="msg"></p>
+
+  <script src="/static/script.js"></script>
+</body>
+</html>
