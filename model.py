@@ -43,43 +43,15 @@ def safe_filename(name):
     name = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore').decode('ascii')
     return re.sub(r'[^\w\-]', '_', name).lower()
 
-
-class FaceDetection:
-    def __init__(self, database_path: str = 'face_db.pt',
-                 log_level: int = logging.INFO, log_to_console: bool = True):
-        self.mtcnn = MTCNN(image_size=160, margin=20, device='cuda' if torch.cuda.is_available() else 'cpu')
-        self.resnet = InceptionResnetV1(pretrained='vggface2').eval()
-        
+class UserDatabase:
+    def __init__(self, database_path: str):
         self.DATABASE_FOLDER = 'database'
-        self.LOG_FOLDER = 'logs'
-        self.SAMPLE_FOLDER = 'sample'
         self.DB_PATH = os.path.join(self.DATABASE_FOLDER, database_path)
         self.meta_data_path = os.path.join(self.DATABASE_FOLDER, 'meta_data.json')
         
-        os.makedirs(os.path.join(self.DATABASE_FOLDER, "Images"), exist_ok=True)
-        os.makedirs(self.LOG_FOLDER, exist_ok=True)
-        os.makedirs(self.SAMPLE_FOLDER, exist_ok=True)
-
         self.__meta_data = read_meta_data(self.meta_data_path)
         self.__db = self.__load_database()
         
-        now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_file = os.path.join(self.LOG_FOLDER, f"model_log_{now}.log")
-
-        handlers = [logging.FileHandler(log_file, mode='w')]
-        if log_to_console:
-            handlers.append(logging.StreamHandler())
-
-        logging.basicConfig(
-            level=log_level,
-            format="%(asctime)s | %(levelname)s | %(message)s",
-            handlers=handlers
-        )
-        
-        self.logger = logging.getLogger("FaceDetection")
-        if len(self.__db) != len(self.__meta_data["ids"]):
-            self.logger.warning("DB and meta_data out of sync!")
-
     def __load_database(self):
         if os.path.exists(self.DB_PATH):
             try:
@@ -88,11 +60,30 @@ class FaceDetection:
             except Exception as e:
                 self.logger.error(f"Failed to load database: {e}")
         return {}
+    
+    def meta_data_query(self, key: str):
+        return self.__meta_data[key]
+        
+    def meta_data_structure(self, d, indent=0):
+        for key, value in d.items():
+            prefix = "  " * indent + f"{key}: "
+            if isinstance(value, dict):
+                print(prefix)
+                self.meta_data_structure(value, indent + 1)
+            elif isinstance(value, list):
+                if value:
+                    element_type = type(value[0]).__name__
+                else:
+                    element_type = "unknown"
+                print(f"{prefix}list[{element_type}]")
+            else:
+                print(f"{prefix}{type(value).__name__}")
 
+        
     def __save_image(self, source: str| np.ndarray| Image.Image = None):
         save_path = os.path.join(self.DATABASE_FOLDER, "Images", f"Default.png")
-        if self.__meta_data['ids'] and self.__meta_data['names']:
-            filename = safe_filename(f"{self.__meta_data['ids'][-1]}_{self.__meta_data['names'][-1]}") + '.png'
+        if self.__database.meta_data_query("ids") and self.__database.meta_data_query("names"):
+            filename = safe_filename(f"{self.__database.meta_data_query("ids")[-1]}_{self.__database.meta_data_query("names")[-1]}") + '.png'
             save_path = os.path.join(self.DATABASE_FOLDER, "Images", filename)
 
         if isinstance(source, str):
@@ -104,7 +95,7 @@ class FaceDetection:
             
         elif source is None:
             self.logger.warning("Database saved without new image!")
-
+    
     def __save_database(self, source: str| np.ndarray| Image.Image = None):
         try:
             torch.save(self.__db, self.DB_PATH)
@@ -113,6 +104,43 @@ class FaceDetection:
             self.__save_image(source)
         except Exception as e:
             self.logger.error(f"Failed to save database or copy image: {e}")
+            
+class FaceDetection:
+    def __init__(self, database_path: str = 'face_db.pt',
+                 log_level: int = logging.INFO, log_to_console: bool = True):
+        self.mtcnn = MTCNN(image_size=160, margin=20, device='cuda' if torch.cuda.is_available() else 'cpu')
+        self.resnet = InceptionResnetV1(pretrained='vggface2').eval()
+        
+        self.DATABASE_FOLDER = 'database'
+        self.LOG_FOLDER = 'logs'
+        self.SAMPLE_FOLDER = 'sample'
+        
+        
+        os.makedirs(os.path.join(self.DATABASE_FOLDER, "Images"), exist_ok=True)
+        os.makedirs(self.LOG_FOLDER, exist_ok=True)
+        os.makedirs(self.SAMPLE_FOLDER, exist_ok=True)
+
+        self.__database = UserDatabase(database_path)
+        # self.__meta_data = self.__database.__meta_data
+        self.__db = self.__database.__db
+        
+        now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_file = os.path.join(self.LOG_FOLDER, f"model_log_{now}.log")
+
+        handlers = [logging.FileHandler(log_file, mode='w')]
+        if log_to_console:
+            handlers.append(logging.StreamHandler())
+
+        
+        self.logger = logging.getLogger("FaceDetection")
+        logging.basicConfig(
+            level=log_level,
+            format="%(asctime)s | %(levelname)s | %(message)s",
+            handlers=handlers
+        )
+        if len(self.__db) != len(self.__database.meta_data_query("ids")):
+            self.logger.warning("DB and meta_data out of sync!")
+
 
     def __get_embedding(self, source: str | np.ndarray | Image.Image):
         try:
@@ -157,13 +185,13 @@ class FaceDetection:
         return embedding, user_id, highest_sim
 
     def findNameById(self, user_id):
-        if user_id in self.__meta_data["ids"]:
-            idx = self.__meta_data["ids"].index(user_id)
-            return self.__meta_data["names"][idx]
+        if user_id in self.__database.meta_data_query("ids"):
+            idx = self.__database.meta_data_query("ids").index(user_id)
+            return self.__database.meta_data_query("names")[idx]
         return None
     
     def findIdByName(self, name):
-        return [self.__meta_data['ids'][i] for i in range(len(self.__meta_data['names'])) if self.__meta_data['names'][i] == name]
+        return [self.__database.meta_data_query('ids')[i] for i in range(len(self.__database.meta_data_query('names'))) if self.__database.meta_data_query('names')[i] == name]
 
     def register_face(self, name: str, source: str | np.ndarray, threshold:float=0.8, user_id: str| int = 'auto'):
         try:
@@ -189,13 +217,13 @@ class FaceDetection:
                     self.logger.warning("User ID must be an integer! Auto generate new id")
                     
                 if user_id == 'auto':
-                    user_id = max([int(i) for i in self.__meta_data['ids']], default=0) + 1
-                if user_id in self.__meta_data['ids']:
+                    user_id = max([int(i) for i in self.__database.meta_data_query("ids")], default=0) + 1
+                if user_id in self.__database.meta_data_query("ids"):
                     self.logger.warning("User ID already exists! Auto generate new id")
-                    user_id = max([int(i) for i in self.__meta_data['ids']], default=0) + 1
+                    user_id = max([int(i) for i in self.__database.meta_data_query("ids")], default=0) + 1
                     
-                self.__meta_data['ids'].append(user_id)
-                self.__meta_data['names'].append(name)
+                self.__database.meta_data_query("ids").append(user_id)
+                self.__database.meta_data_query("names").append(name)
                 self.__db[user_id] = embedding
                 
                 self.logger.info(f"Successfully registered new user: {safe_filename(name)} | ID: {user_id} ")
@@ -210,12 +238,12 @@ class FaceDetection:
                 plt.figure(figsize=(6, 6))
                 plt.axis('off')
                 plt.imshow(cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB))
-                filename = safe_filename(f"bbox_{self.__meta_data['ids'][-1]}_{self.__meta_data['names'][-1]}.png")
+                filename = safe_filename(f"bbox_{self.__database.meta_data_query("ids")[-1]}_{self.__database.meta_data_query("ids")[-1]}.png")
                 save_path = os.path.join(self.SAMPLE_FOLDER, filename)
                 plt.savefig(save_path, bbox_inches='tight', pad_inches=0)
                 plt.close('all')
 
-            self.__save_database(img)
+            self.__database.__save_database(img)
         except Exception as e:
             self.logger.error(f"Failed to register face for '{safe_filename(name)}': {e}")
 
@@ -227,9 +255,9 @@ class FaceDetection:
                 return None
 
             if similarity >= threshold:
-                if best_match in self.__meta_data["ids"]:
-                    idx = self.__meta_data["ids"].index(best_match)
-                    name = self.__meta_data["names"][idx]
+                if best_match in self.__database.meta_data_query("ids"):
+                    idx = self.__database.meta_data_query("ids").index(best_match)
+                    name = self.__database.meta_data_query("names")[idx]
                     user_id = best_match
                     self.logger.info(f"Matched with: {name} (ID = {user_id}, similarity = {similarity:.4f})")
                     return {"id": user_id, "name": name, "similarity": similarity}
@@ -245,17 +273,17 @@ class FaceDetection:
 
     def rename_user(self, old_name: str, new_name: str):
         try:
-            if old_name not in self.__meta_data["names"]:
+            if old_name not in self.__database.meta_data_query("names"):
                 self.logger.warning(f"Cannot rename: '{old_name}' not found.")
                 return
 
-            idx = self.__meta_data["names"].index(old_name)
-            user_id = self.__meta_data["ids"][idx]
-            self.__meta_data["names"][idx] = new_name
+            idx = self.__database.meta_data_query("names").index(old_name)
+            user_id = self.__database.__meta_data["ids"][idx]
+            self.__database.meta_data_query("names")[idx] = new_name
             
             self.__rename_file(old_name, new_name, user_id)
 
-            self.__save_database()
+            self.__database.__save_database()
 
             self.logger.info(f"Renamed '{old_name}' -> '{new_name}'")
         except Exception as e:
@@ -281,25 +309,25 @@ class FaceDetection:
             
             os.makedirs(os.path.join(self.DATABASE_FOLDER, "Images"), exist_ok=True)
             os.makedirs(self.SAMPLE_FOLDER, exist_ok=True)
-            init_metadata(self.meta_data_path)
+            init_metadata(self.__database.meta_data_path)
             self.logger.info("System reset successfully: All data removed and structure re-initialized.")
 
         except Exception as e:
             print(f"[ERROR] Failed to reset system: {e}")
             
     def delete_user(self, user_id: int):
-        if user_id not in self.__meta_data['ids']:
+        if user_id not in self.__database.meta_data_query("ids"):
             self.logger.warning(f"User ID {user_id} not found.")
             return
-        idx = self.__meta_data['ids'].index(user_id)
-        name = self.__meta_data['names'][idx]
+        idx = self.__database.meta_data_query("ids").index(user_id)
+        name = self.__database.meta_data_query("names")[idx]
 
-        del self.__meta_data['ids'][idx]
-        del self.__meta_data['names'][idx]
+        del self.__database.meta_data_query("ids")[idx]
+        del self.__database.meta_data_query("names")[idx]
         self.__db.pop(user_id, None)
 
         self.__delete_files(user_id, name)
-        self.__save_database()
+        self.__database.__save_database()
         self.logger.info(f"Deleted user {user_id} ({name})")
 
     def __delete_files(self, user_id, name):
@@ -312,4 +340,4 @@ class FaceDetection:
                 os.remove(f)
                 
     def get_all_users(self):
-        return [{"id": id, "name": name} for name, id in zip(self.__meta_data['names'], self.__meta_data['ids'])]
+        return [{"id": id, "name": name} for name, id in zip(self.__database.meta_data_query("names"), self.__database.meta_data_query("ids"))]
