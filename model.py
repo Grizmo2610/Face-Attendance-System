@@ -1,5 +1,4 @@
 import os
-import json
 import shutil
 import logging
 from typing import Any
@@ -11,76 +10,15 @@ import cv2
 from PIL import Image
 
 import torch
-import torch.nn.functional as F
+
 from facenet_pytorch import MTCNN, InceptionResnetV1
 
 from logger import MyLogger
+from Database import UserDatabase
 from util import *
 
 logger = MyLogger()
 
-class UserDatabase:
-    def __init__(self, database_path: str):
-        self.DATABASE_FOLDER = 'database'
-        self.DB_PATH = os.path.join(self.DATABASE_FOLDER, database_path)
-        self.meta_data_path = os.path.join(self.DATABASE_FOLDER, 'meta_data.json')
-        
-        self.__meta_data = read_meta_data(self.meta_data_path)
-        self.__db = self.__load_database()
-        
-        self.logger = logger
-    def __load_database(self):
-        if os.path.exists(self.DB_PATH):
-            try:
-                with open(self.DB_PATH, 'rb') as f:
-                    return torch.load(f)
-            except Exception as e:
-                self.logger.error(f"Failed to load database: {e}")
-        return {}
-    
-    def meta_data_query(self, key: str):
-        return self.__meta_data[key]
-        
-    def meta_data_structure(self, d, indent=0):
-        for key, value in d.items():
-            prefix = "  " * indent + f"{key}: "
-            if isinstance(value, dict):
-                print(prefix)
-                self.meta_data_structure(value, indent + 1)
-            elif isinstance(value, list):
-                if value:
-                    element_type = type(value[0]).__name__
-                else:
-                    element_type = "unknown"
-                print(f"{prefix}list[{element_type}]")
-            else:
-                print(f"{prefix}{type(value).__name__}")
-        
-    def __save_image(self, source: str| np.ndarray| Image.Image = None):
-        save_path = os.path.join(self.DATABASE_FOLDER, "Images", f"Default.png")
-        if self.__meta_data["ids"] and self.__meta_data["names"]:
-            filename = safe_filename(f"{self.__meta_data["ids"][-1]}_{self.__meta_data["names"][-1]}") + '.png'
-            save_path = os.path.join(self.DATABASE_FOLDER, "Images", filename)
-
-        if isinstance(source, str):
-            shutil.copy(source, save_path)
-        elif isinstance(source, np.ndarray):
-            cv2.imwrite(save_path, source)
-        elif isinstance(source, Image.Image):
-            source.save(save_path)
-            
-        elif source is None:
-            self.logger.warning("Database saved without new image!")
-    
-    def save_database(self, source: str| np.ndarray| Image.Image = None):
-        try:
-            torch.save(self.__db, self.DB_PATH)
-            with open(self.meta_data_path, 'w') as f:
-                json.dump(self.__meta_data, f, indent=4)
-            self.__save_image(source)
-        except Exception as e:
-            self.logger.error(f"Failed to save database or copy image: {e}")
-            
 class FaceDetection:
     def __init__(self, database_path: str = 'face_db.pt',
                  log_level: int = logging.INFO, log_to_console: bool = True):
@@ -90,15 +28,14 @@ class FaceDetection:
         self.DATABASE_FOLDER = 'database'
         self.LOG_FOLDER = 'logs'
         self.SAMPLE_FOLDER = 'sample'
-        
+        self.database_path = database_path
         
         os.makedirs(os.path.join(self.DATABASE_FOLDER, "Images"), exist_ok=True)
         os.makedirs(self.LOG_FOLDER, exist_ok=True)
         os.makedirs(self.SAMPLE_FOLDER, exist_ok=True)
 
         self.__database = UserDatabase(database_path)
-        # self.__meta_data = self.__database.__meta_data
-        self.__db = self.__database.__db
+        self.__db = self.__database.get_db()
         
         self.logger = logger
         self.logger.setup(log_level, log_to_console, self.LOG_FOLDER)
@@ -158,7 +95,7 @@ class FaceDetection:
     def findIdByName(self, name):
         return [self.__database.meta_data_query('ids')[i] for i in range(len(self.__database.meta_data_query('names'))) if self.__database.meta_data_query('names')[i] == name]
 
-    def register_face(self, name: str, source: str | np.ndarray, threshold:float=0.8, user_id: str| int = 'auto'):
+    def register_face(self, name: str, source: str | np.ndarray, threshold:float=0.8):
         try:
             embedding, matched_id, similarity = self.__get_embedding_and_best_match(source)
             matched_name = self.findNameById(matched_id) if matched_id is not None else "Unknown"
@@ -177,18 +114,10 @@ class FaceDetection:
                 self.logger.warning(f"Similar face found: {matched_name} (similarity = {similarity * 100:.2f}%) — Overwriting")
                 self.__db[matched_id] = embedding
             else:
-                if user_id != 'auto' and not isinstance(user_id, int):
-                    user_id = 'auto'
-                    self.logger.warning("User ID must be an integer! Auto generate new id")
+                user_id = generate_unique_id(self.__database.meta_data_query("ids"))
                     
-                if user_id == 'auto':
-                    user_id = max([int(i) for i in self.__database.meta_data_query("ids")], default=0) + 1
-                if user_id in self.__database.meta_data_query("ids"):
-                    self.logger.warning("User ID already exists! Auto generate new id")
-                    user_id = max([int(i) for i in self.__database.meta_data_query("ids")], default=0) + 1
-                    
-                self.__database.meta_data_query("ids").append(user_id)
-                self.__database.meta_data_query("names").append(name)
+                self.__database.update_meta_data("ids", user_id)
+                self.__database.update_meta_data("names", name)
                 self.__db[user_id] = embedding
                 
                 self.logger.info(f"Successfully registered new user: {safe_filename(name)} | ID: {user_id} ")
@@ -203,7 +132,7 @@ class FaceDetection:
                 plt.figure(figsize=(6, 6))
                 plt.axis('off')
                 plt.imshow(cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB))
-                filename = safe_filename(f"bbox_{self.__database.meta_data_query("ids")[-1]}_{self.__database.meta_data_query("ids")[-1]}.png")
+                filename = safe_filename(f"bbox_{self.__database.meta_data_query('ids')[-1]}_{self.__database.meta_data_query('ids')[-1]}.png")
                 save_path = os.path.join(self.SAMPLE_FOLDER, filename)
                 plt.savefig(save_path, bbox_inches='tight', pad_inches=0)
                 plt.close('all')
@@ -236,20 +165,15 @@ class FaceDetection:
             self.logger.error(f"Error during face verification: {e}")
             return {'id': None, "name": None, "similarity": -1.0}
 
-    def rename_user(self, old_name: str, new_name: str):
+    def rename_user(self, user_id: str, new_name: str):
+        if user_id not in self.__database.meta_data_query("ids"):
+            self.logger.warning(f"User ID {user_id} cannot be founded in database! nothing changed")
+            return
+        old_name = self.__database.rename_user_by_id(user_id, new_name)
         try:
-            if old_name not in self.__database.meta_data_query("names"):
-                self.logger.warning(f"Cannot rename: '{old_name}' not found.")
-                return
-
-            idx = self.__database.meta_data_query("names").index(old_name)
-            user_id = self.__database.__meta_data["ids"][idx]
-            self.__database.meta_data_query("names")[idx] = new_name
-            
-            self.__rename_file(old_name, new_name, user_id)
-
-            self.__database.save_database()
-
+            if old_name:
+                self.__rename_file(old_name, new_name, user_id)
+                self.__database.save_database()
             self.logger.info(f"Renamed '{old_name}' -> '{new_name}'")
         except Exception as e:
             self.logger.error(f"Failed to rename user '{old_name}' to '{new_name}': {e}")
@@ -274,9 +198,11 @@ class FaceDetection:
             
             os.makedirs(os.path.join(self.DATABASE_FOLDER, "Images"), exist_ok=True)
             os.makedirs(self.SAMPLE_FOLDER, exist_ok=True)
+            self.__database = UserDatabase(self.database_path)
+            self.__db = self.__database.get_db()
+            
             init_metadata(self.__database.meta_data_path)
             self.logger.info("System reset successfully: All data removed and structure re-initialized.")
-
         except Exception as e:
             print(f"[ERROR] Failed to reset system: {e}")
             

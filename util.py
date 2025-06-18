@@ -2,15 +2,23 @@ import os
 import re
 import json
 import unicodedata
+import uuid
 from typing import Any
+import torch.nn.functional as F
 
 import torch
 
+def generate_unique_id(existing_ids):
+    while True:
+        new_id = uuid.uuid4().hex[:8]
+        if new_id not in existing_ids:
+            return new_id
+        
 def cosine_similarity(t1, t2):
-    if t1.norm() == 0 or t2.norm() == 0:
+    denom = t1.norm() * t2.norm()
+    if denom == 0:
         return torch.tensor(0.0)
-    return F.cosine_similarity(t1.unsqueeze(0), t2.unsqueeze(0)).item()
-
+    return torch.dot(t1, t2) / denom
 
 def init_metadata(path: str):
     meta_data = {
