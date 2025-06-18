@@ -35,11 +35,14 @@ class MyLogger:
         self._logger.setLevel(log_level)
         self.handler_configured = True
 
-    def info(self, msg):
+    def info(self, msg: str):
         self._logger.info(msg)
+        return msg
 
-    def warning(self, msg):
+    def warning(self, msg: str):
         self._logger.warning(msg)
+        return msg
 
-    def error(self, msg):
+    def error(self, msg: str):
         self._logger.error(msg)
+        return msg
